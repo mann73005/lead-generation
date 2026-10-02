@@ -1,0 +1,135 @@
+# Product identity and outreach template.
+#
+# The seller, the pitch, the pain-point mapping and the email skeleton all live
+# here. Nothing about the product appears as a literal in the Python source, so
+# pointing this system at a different company is a config change.
+#
+# The `template` section reproduces the fixed skeleton from the assignment's
+# Appendix A. Its locked copy is not the agent's to edit; only the bracketed
+# tokens are filled, and only from stored lead/company fields.
+
+version: 1
+
+identity:
+  name: StyleSense AI
+  description: >-
+    demand forecasting, size and fit prediction, trend intelligence and
+    inventory allocation for apparel and fashion brands and retailers
+  # Used for {{company_segment}}. Chosen per lead from the company's own type.
+  segments:
+    default: retail
+    by_keyword:
+      brand: brand
+      retailer: retail
+      marketplace: marketplace
+      manufacturer: manufacturing
+      exporter: manufacturing
+
+# Appendix A's pain point -> capability map. Extendable, but every extension
+# still has to pass the grounding check before it reaches an email.
+#
+# `signals` are matched against the stored evidence — what the company was
+# observed doing. `title_signals` are matched against the lead's own job title,
+# because the person's remit is itself evidence of which problem is theirs: a
+# Head of Supply Chain owns allocation whether or not any article happens to
+# mention a stockout. Without this second axis most well-evidenced leads match
+# no pain point at all and lose the value-proposition sentence entirely.
+#
+# `default` names the pain point used when neither axis matches. It is a
+# positioning choice, not a guess about the company, so it asserts nothing the
+# grounding check would have to catch.
+default: overstock
+
+pain_points:
+  overstock:
+    label: overstock and markdown pressure
+    capability: forecast demand at SKU and store level before the buy is committed
+    signals: [markdown, discount, clearance, overstock, excess inventory, unsold]
+    title_signals: [merchandis, buying, buyer, planning, demand, forecast, category]
+  returns:
+    label: return rates and sizing complaints
+    capability: cut size-related returns with fit prediction at the point of purchase
+    signals: [returns, sizing, fit, exchange, size chart]
+    title_signals: [ecommerce, e-commerce, digital, customer experience]
+  trend_lag:
+    label: slow reaction to trends
+    capability: spot demand shifts weeks earlier with trend intelligence
+    signals: [trend, newness, fast fashion, drop, capsule, collection launch]
+    title_signals: [design, product, brand, marketing]
+  stockouts:
+    label: stockouts across channels
+    capability: rebalance inventory across stores and channels automatically
+    signals: [stockout, out of stock, availability, allocation, replenishment, omnichannel]
+    title_signals: [supply chain, inventory, logistics, operations, warehouse, retail, store]
+
+# Research signals worth looking for, from Appendix A. Used to rank which
+# observed fact becomes the personalisation hook.
+research_signals:
+  - [launch, collection, capsule, "new store", flagship]
+  - [expansion, dtc, marketplace, wholesale, "new region", international]
+  - [hiring, appointed, "joins as", appoints, "head of"]
+  - [funding, raised, series, investment, ipo]
+  - [sustainability, overproduction, circular, deadstock]
+
+# --------------------------------------------------------------------------
+# Outreach template — Appendix A, verbatim
+# --------------------------------------------------------------------------
+template:
+  # Locked copy. The agent fills {{tokens}} and nothing else: it may not
+  # reword, reorder or add sentences.
+  subject_options:
+    - "{{company_name}}'s {{observed_signal_short}} - quick question"
+    - "Cutting {{pain_point_category}} at {{company_name}}"
+    - "{{first_name}}, saw {{observed_signal_short}}"
+
+  # Each entry is one sentence of the skeleton, in order. A sentence whose
+  # required token cannot be grounded is dropped whole — that is why the body
+  # is modelled as sentences rather than one string with placeholders.
+  body:
+    - id: greeting
+      text: "Hi {{first_name}},"
+      required: [first_name]
+    - id: signal
+      text: "I noticed {{observed_signal_sentence}}."
+      required: [observed_signal_sentence]
+    - id: value_prop
+      text: >-
+        At {{product_name}}, we help apparel and fashion {{company_segment}}
+        teams {{value_prop_for_pain_point}}{{quantified_outcome_optional}}.
+      required: [company_segment, value_prop_for_pain_point]
+    - id: relevance
+      text: >-
+        Given {{company_name}}'s {{specific_context_detail}},
+        {{one_line_relevance_hypothesis}}.
+      required: [company_name, specific_context_detail, one_line_relevance_hypothesis]
+    - id: ask
+      text: >-
+        Would you be open to a 15-minute call{{proposed_time_window}} to see if
+        it's a fit?
+      required: []
+    - id: signoff
+      text: "Best,\n{{sender_name}}\n{{product_name}}"
+      required: [sender_name]
+    # The token is the whole content of this line, so no `required` entry is
+    # needed: when it is omitted the line collapses to "P.S." and the renderer
+    # drops any sentence left without words. Listing it as required as well
+    # would mix the two mechanisms — drop-the-sentence and omit-the-token.
+    - id: ps
+      text: "P.S. {{optional_soft_proof_point}}"
+      required: []
+      optional: true
+
+  # Omitted cleanly when no grounded value exists, rather than dropping their
+  # sentence or being filled with generic filler.
+  #
+  # `prefix` is the connecting punctuation, which belongs to the token and not
+  # to the sentence: writing " - " into the skeleton would leave a dangling
+  # dash whenever the token is omitted. Rendered as prefix + value, or as
+  # nothing at all.
+  optional_tokens:
+    quantified_outcome_optional:
+      prefix: " - "
+    proposed_time_window:
+      prefix: " "
+    optional_soft_proof_point:
+      prefix: ""

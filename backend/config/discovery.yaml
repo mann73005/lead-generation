@@ -1,0 +1,185 @@
+# Lead discovery policy.
+#
+# Everything the discovery agent treats as a rule lives here: its budgets, the
+# sources it refuses, the shapes it rejects, the queries it opens with and the
+# prompts it runs. No discovery behaviour is expressed as a literal in the
+# Python source.
+#
+# The reason is the same one the brief gives for scoring weights: these are
+# judgement calls that get retuned as you learn what the web actually returns,
+# and retuning them should not mean editing — or redeploying — code.
+
+version: 1
+
+# --------------------------------------------------------------------------
+# Budgets
+# --------------------------------------------------------------------------
+limits:
+  # Opening searches derived from the ICP, issued before the model is asked
+  # anything. Deterministic, so they cost no LLM quota.
+  seed_fetch_count: 6
+
+  # Turns the agent may take *after* the seed. Zero is valid and still
+  # produces leads; each turn costs one request against a metered quota.
+  refinement_turns: 1
+
+  max_searches: 8
+  max_fetches: 12
+
+  # Characters of each fetched page handed back to the model. Full extractions
+  # run to tens of thousands and the useful part is near the top.
+  page_char_budget: 6000
+
+  # After this many searches with nothing read, the search tool is withdrawn
+  # and only fetch is offered. Left to itself the model will refine queries
+  # until the budget is gone without ever opening a page; prompting against
+  # that is unreliable, removing the option is not.
+  searches_before_fetch_forced: 2
+
+# --------------------------------------------------------------------------
+# Which sources may be cited
+# --------------------------------------------------------------------------
+sources:
+  # Login or consent walls, plus job boards and recruiters. The walls return
+  # the wall rather than the page, so a citation to one cannot be checked. The
+  # job boards are readable but list *vacancies* — a "Head of Merchandising"
+  # result from one is a role nobody holds yet. Both dominate title searches,
+  # so both are removed at the same point.
+  gated_domains:
+    - linkedin.com
+    - facebook.com
+    - instagram.com
+    - twitter.com
+    - x.com
+    - glassdoor.com
+    - indeed.com
+    - naukri.com
+    - ambitionbox.com
+    - michaelpage.co.in
+    - michaelpage.com
+    - shine.com
+    - monsterindia.com
+    - foundit.in
+    - timesjobs.com
+    - iimjobs.com
+
+  # Path fragments marking a listings page on a domain that is otherwise
+  # useful — some trade-press sites publish news and a jobs board together.
+  job_path_markers:
+    - /jobs
+    - /job/
+    - /careers
+    - /vacanc
+    - /recruit
+    - /fashion-jobs
+
+# --------------------------------------------------------------------------
+# Opening searches
+# --------------------------------------------------------------------------
+# `{scope}` is "<industry> <region>", `{title}` one ICP title, `{keywords}` the
+# ICP keywords joined by spaces.
+#
+# Appointment announcements are the most productive source by a wide margin:
+# they name a person, their exact title and their employer in one sentence, on
+# a readable trade-press page. A bare '"<title>" <industry> <region>' search
+# returns job adverts instead, which is why the templates lead with the verbs
+# that appear in a hiring announcement.
+seed_queries:
+  per_title: '{scope} "appointed" OR "joins as" OR "appoints" "{title}"'
+  max_titles: 2
+  global:
+    - "{scope} brand leadership team appointment supply chain merchandising news"
+    - '{scope} apparel brand "our leadership" OR "leadership team" merchandising planning'
+  with_keywords: "{keywords} {scope} executive appointment"
+  max_queries: 5
+
+# --------------------------------------------------------------------------
+# What counts as a lead
+# --------------------------------------------------------------------------
+validation:
+  # Shared mailboxes. Real addresses, but not a named decision maker — mailing
+  # them is how a cold outreach system gets its domain blocklisted. Stripped
+  # from the lead rather than rejecting it.
+  role_mailboxes:
+    [info, contact, sales, support, admin, hello, help, careers, jobs, hr,
+     press, media, marketing, enquiries, enquiry, office, team, mail, noreply,
+     no-reply, webmaster]
+
+  # Values a model emits when it has nothing and will not say so.
+  placeholder_names:
+    ["n/a", na, none, "null", unknown, tbd, "not available", "john doe",
+     "jane doe", first, firstname, lastname, test, example, placeholder,
+     redacted, anonymous]
+
+  # Titles too generic to score or personalise against.
+  vague_titles: [employee, staff, "team member", professional, "n/a", unknown]
+
+  # Roles that hold no budget. Research papers are a particularly good trap: a
+  # paper on demand forecasting published by a fashion retailer looks like a
+  # perfect ICP match to an extractor, and its authors are data scientists with
+  # nothing to buy. Observed in a real run, where one arXiv PDF produced four
+  # "leads".
+  non_buyer_title_markers:
+    [researcher, "research scientist", "research assistant", phd, professor,
+     lecturer, student, intern, author, co-author, candidate, alumnus]
+
+# --------------------------------------------------------------------------
+# Prompts
+# --------------------------------------------------------------------------
+prompts:
+  system: |
+    You are a B2B lead researcher for {product_name}, which sells
+    {product_description}.
+
+    Your job is to find real, named people at real companies who match the
+    profile you are given.
+
+    Method:
+    1. Use `search` with specific queries combining the industry, region and
+       target job titles.
+    2. Immediately use `fetch_page` on the most promising results. Search
+       snippets alone are not enough to extract a person from. Do not run more
+       than two searches before you have fetched something.
+    3. Stop once you have read enough pages to name the people you found.
+
+    Source preference, best first:
+    - Company leadership, team and "about us" pages.
+    - Press releases and trade-press articles that name an executive.
+    - Company blog posts and interviews.
+
+    Login-gated sites and job boards are filtered out of your search results
+    automatically, because a page we cannot read cannot be cited and a vacancy
+    is not a person. Do not add `site:` operators for them — they are removed.
+
+    Hard rules:
+    - Only report people whose name and role you actually read on a page you
+      fetched.
+    - Never guess an email address. Report one only if it appears on the page.
+    - If a page names no individual, move on rather than inventing one.
+    - Prefer a smaller set of well-evidenced leads over a long list of guesses.
+
+  extraction: |
+    Now return the leads you found, as JSON matching the schema.
+
+    Include anyone named on the pages whose role touches merchandising,
+    buying, planning, demand forecasting, supply chain, inventory, operations
+    or retail leadership. The target titles are a guide, not a filter — report
+    the person's real title verbatim and let the scoring system judge the fit.
+    A COO or Category Head at an apparel brand is a lead worth reporting.
+
+    Do not report a job vacancy as a person. If a page advertises an open
+    role, there is no lead on it.
+
+    Do not report authors of research papers, academic publications or
+    conference proceedings. A paper about demand forecasting published by a
+    fashion retailer is not a list of buyers.
+
+    For every lead:
+    - `source_url` must be a URL you opened with `fetch_page`. Do not cite a
+      page you only saw in search results.
+    - `observed_signal` should be one specific, verifiable fact the page
+      states about the company — a launch, an expansion, a funding round, a
+      hiring push. Leave it null if the page states none. Do not generalise.
+    - Leave any field null rather than guessing it.
+
+    Return at most {limit} leads.

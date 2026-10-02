@@ -1,0 +1,79 @@
+# Lead scoring weights.
+#
+# Every number the scoring engine uses lives here — there are no scoring
+# constants anywhere in the Python source. Changing a weight and restarting is
+# enough to re-rank the whole list, because scores are recomputed from the
+# event history rather than incremented in place.
+#
+#   score = clamp(fit + engagement, 0, 100)
+#
+# fit.max + engagement.max is exactly 100, so the final clamp never actually
+# binds. That matters: if the two ceilings summed above 100, every strong lead
+# would pile up at 100 and the top of the salesperson's list would lose its
+# ordering. The scoring config is validated against this at load time.
+#
+# Fit is capped at 60 and engagement at 40. A flawless-fit lead that has never
+# engaged therefore tops out at 60 and can never outrank a merely good lead
+# who replied — which is the ranking a salesperson actually wants.
+
+version: 1
+
+fit:
+  # The weights below sum to exactly 60, so a perfect ICP match reaches the
+  # ceiling without being truncated by it.
+  max: 60
+  weights:
+    # Company industry matches the ICP industry.
+    industry_match: 20
+    # Company region (or country) matches the ICP region.
+    region_match: 12
+    # Headcount falls inside the ICP's employee_min..employee_max band.
+    company_size_match: 8
+    # Job title contains one of the ICP's target titles.
+    title_exact_match: 15
+    # Title shares distinguishing words but not the full phrase, e.g.
+    # "Merchandising Manager" against "Head of Merchandising". Mutually
+    # exclusive with title_exact_match.
+    title_partial_match: 7
+    # Contactability. A lead with no address can be ranked but never worked,
+    # so it is worth strictly less than an otherwise identical lead.
+    has_email: 3
+    has_linkedin: 2
+
+engagement:
+  # Best realistic case — delivered + opened repeatedly + replied with
+  # interest — lands on exactly 40.
+  max: 40
+  weights:
+    delivered: 5
+    opened: 10
+    replied: 15
+  # Repeat opens signal interest but must stay small: someone who opened four
+  # times has not told us as much as someone who typed a reply.
+  repeat_open_bonus: 2
+  max_repeat_open_bonus: 4
+  # Applied on top of `replied`, from the AI reply classification. The act of
+  # replying is the large signal; intent is the modifier that sorts repliers
+  # against each other. Negative values push disengaged leads down the list
+  # rather than deleting them — the salesperson still needs to see why.
+  reply_intent:
+    interested: 6
+    needs_info: 3
+    not_now: -5
+    wrong_person: -10
+    unsubscribe: -15
+
+# Hard overrides applied after fit + engagement. These win over everything,
+# because compliance and deliverability are not tradeable against fit.
+penalties:
+  # An opted-out lead is dead no matter how well it matches the ICP.
+  unsubscribed: 0
+  # A bouncing address cannot be worked, though the company may still be worth
+  # revisiting through a different contact — hence a cap, not a zero.
+  bounced: 10
+
+# Thresholds the console uses for its priority badges.
+bands:
+  hot: 75
+  warm: 50
+  cold: 0
