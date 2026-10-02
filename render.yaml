@@ -1,21 +1,27 @@
-# Render blueprint.
+# Render blueprint: the API and the console.
 #
-# Paths are repo-root relative rather than using `rootDir`: Render resolves
-# dockerfilePath from the repository root regardless, and mixing the two is the
-# usual reason a Docker build cannot find its context.
+# Two services on two origins, which is the one thing production does
+# differently from development. In dev the Vite proxy forwards /api to the
+# backend so the browser only ever sees one origin; in production the console
+# calls the API directly, so it needs an absolute VITE_API_URL and the API
+# needs the console's origin in CORS_ORIGINS.
 #
 # Free instances sleep after ~15 minutes idle and take roughly 50 seconds to
 # wake. That matters more here than for most APIs: the open-tracking pixel is
 # fetched by the recipient's mail client, and a cold start can delay or drop
 # that request. Warm the service with GET /health before a live demo.
 #
-# Secrets are marked `sync: false`, so Render prompts for them at deploy time
-# and they never live in the repository.
+# Secrets are `sync: false`, so Render prompts for them at deploy time and they
+# never live in the repository.
 
 services:
+  # --------------------------------------------------------------------- API
   - type: web
     name: stylesense-api
     runtime: docker
+    # Paths are repo-root relative: Render resolves dockerfilePath from the
+    # repository root regardless of rootDir, and mixing the two is the usual
+    # reason a Docker build cannot find its context.
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     plan: free
@@ -23,11 +29,9 @@ services:
     healthCheckPath: /health
     autoDeployTrigger: commit
     envVars:
-      # --- Database -----------------------------------------------------
       - key: DATABASE_URL
         sync: false
 
-      # --- Auth ---------------------------------------------------------
       - key: JWT_SECRET
         generateValue: true
       - key: BOOTSTRAP_USER_EMAIL
@@ -35,7 +39,6 @@ services:
       - key: BOOTSTRAP_USER_PASSWORD
         sync: false
 
-      # --- AI providers -------------------------------------------------
       - key: GEMINI_API_KEY
         sync: false
       - key: LLM_MODEL
@@ -45,7 +48,6 @@ services:
       - key: TAVILY_API_KEY
         sync: false
 
-      # --- Email --------------------------------------------------------
       - key: RESEND_API_KEY
         sync: false
       - key: EMAIL_FROM_ADDRESS
@@ -55,12 +57,49 @@ services:
       - key: EMAIL_OVERRIDE_TO
         sync: false
 
-      # --- App ----------------------------------------------------------
       - key: ENVIRONMENT
         value: production
+      # The console's origin. Must be set once the static site has a URL,
+      # or every browser request from it is blocked.
       - key: CORS_ORIGINS
         sync: false
 
       # PUBLIC_BASE_URL is deliberately absent: the app derives it from
       # RENDER_EXTERNAL_HOSTNAME, so the tracking pixel URL follows the
       # service's real domain instead of a value that silently goes stale.
+
+  # ----------------------------------------------------------------- console
+  - type: web
+    name: stylesense-console
+    runtime: static
+    rootDir: frontend
+    # `npm ci` rather than `npm install`: it installs exactly the lockfile, so
+    # a deploy cannot quietly pick up a different dependency tree than the one
+    # that was tested.
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    autoDeployTrigger: commit
+    envVars:
+      # Absolute, because there is no dev proxy in production.
+      - key: VITE_API_URL
+        sync: false
+
+    routes:
+      # React Router owns the paths. Without this, opening /leads/<id> directly
+      # asks the static host for a file that does not exist and returns 404 —
+      # the app only works if you always enter through /.
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      # The console is same-origin only; nothing should be framing it.
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
