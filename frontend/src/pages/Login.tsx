@@ -21,8 +21,14 @@ export function LoginPage() {
     try {
       await signIn(email.trim(), password)
     } catch (caught) {
+      // The real message is shown rather than a generic one: a configuration
+      // fault here ("the app is calling itself instead of the API") is
+      // something the person deploying needs to read, and "please try again"
+      // sends them round the same loop.
       setError(
-        caught instanceof ApiError ? caught.message : 'Could not sign in. Please try again.',
+        caught instanceof ApiError || caught instanceof Error
+          ? caught.message
+          : 'Could not sign in. Please try again.',
       )
     } finally {
       setSubmitting(false)

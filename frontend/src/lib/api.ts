@@ -121,7 +121,28 @@ async function send<T>(path: string, options: Options, retry = true): Promise<T>
 
   if (response.status === 204) return undefined as T
 
-  const payload = await response.json().catch(() => null)
+  const body = await response.text()
+  let payload: { error?: { code?: string; message?: string; details?: Record<string, unknown> } } | null =
+    null
+  try {
+    payload = body ? JSON.parse(body) : null
+  } catch {
+    // Swallowing this used to return null on a 200, and the caller then blew
+    // up reading a property of null — surfacing a misconfiguration as a
+    // generic "something went wrong". A response we cannot read is an error
+    // whatever its status code.
+    if (response.ok) {
+      const looksLikeHtml = body.trimStart().startsWith('<')
+      throw new ApiError(
+        response.status,
+        looksLikeHtml ? 'api_url_misconfigured' : 'invalid_response',
+        looksLikeHtml
+          ? 'The app is calling itself instead of the API: it received a web page where JSON was expected. ' +
+            'Set VITE_API_URL to the backend URL and rebuild.'
+          : 'The server returned a response that could not be read.',
+      )
+    }
+  }
 
   if (!response.ok) {
     const error = payload?.error
