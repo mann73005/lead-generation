@@ -17,12 +17,20 @@ import {
   Td,
   Th,
 } from '../components/ui'
-import { ApiError, api, type DiscoveryRun, type Icp, type Page } from '../lib/api'
+import {
+  ApiError,
+  api,
+  type DiscoveryRun,
+  type DiscoveryRunDetail,
+  type Icp,
+  type Page,
+} from '../lib/api'
 import { dateTime } from '../lib/format'
 
 export function DiscoveryPage() {
   const queryClient = useQueryClient()
   const [target, setTarget] = useState<Icp | null>(null)
+  const [openRun, setOpenRun] = useState<string | null>(null)
 
   const icps = useQuery({
     queryKey: ['icps'],
@@ -98,7 +106,14 @@ export function DiscoveryPage() {
                 </thead>
                 <tbody>
                   {runs.data!.items.map((item) => (
-                    <tr key={item.id}>
+                    <tr
+                      key={item.id}
+                      onClick={() => setOpenRun(item.id)}
+                      tabIndex={0}
+                      role="link"
+                      onKeyDown={(event) => event.key === 'Enter' && setOpenRun(item.id)}
+                      className="cursor-pointer transition-colors hover:bg-sunken/70 focus-visible:bg-sunken"
+                    >
                       <Td className="text-[13px] text-ink-secondary">
                         {dateTime(item.started_at)}
                         {item.error && (
@@ -128,20 +143,22 @@ export function DiscoveryPage() {
               </Table>
             )}
             <p className="border-t border-line px-4 py-2.5 text-[12px] text-ink-muted">
-              Rejected candidates cited a page the agent never actually read, or were not in a
-              buying role. They are discarded rather than stored with a caveat.
+              Open a run to see the queries it issued, the pages it read, and why each rejected
+              candidate was rejected.
             </p>
           </Card>
         </div>
       </div>
+
+      {openRun && <RunDetailDialog runId={openRun} onClose={() => setOpenRun(null)} />}
 
       {target && (
         <RunDialog
           icp={target}
           onClose={() => setTarget(null)}
           onDone={() => {
-            setTarget(null)
             queryClient.invalidateQueries({ queryKey: ['runs'] })
+            queryClient.invalidateQueries({ queryKey: ['icps'] })
             queryClient.invalidateQueries({ queryKey: ['leads'] })
             queryClient.invalidateQueries({ queryKey: ['dashboard'] })
           }}
@@ -163,12 +180,36 @@ function RunDialog({
   onDone: () => void
 }) {
   const [count, setCount] = useState(8)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState({
+    industry: icp.industry,
+    region: icp.region,
+    employee_min: icp.employee_min?.toString() ?? '',
+    employee_max: icp.employee_max?.toString() ?? '',
+    titles: icp.titles.join(', '),
+    keywords: icp.keywords.join(', '),
+  })
   const [result, setResult] = useState<DiscoveryRun | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const run = useMutation({
-    mutationFn: () =>
-      api.post<DiscoveryRun>('/api/v1/discovery/run', { icp_id: icp.id, count }),
+    mutationFn: async () => {
+      // Edits are saved to the profile before the run rather than applied as
+      // one-off overrides. The same profile is what the fit score is measured
+      // against, so a lead scored on criteria the run did not use would be
+      // quietly wrong.
+      if (editing) {
+        await api.patch<Icp>(`/api/v1/icps/${icp.id}`, {
+          industry: draft.industry.trim(),
+          region: draft.region.trim(),
+          employee_min: draft.employee_min ? Number(draft.employee_min) : null,
+          employee_max: draft.employee_max ? Number(draft.employee_max) : null,
+          titles: draft.titles.split(',').map((t) => t.trim()).filter(Boolean),
+          keywords: draft.keywords.split(',').map((k) => k.trim()).filter(Boolean),
+        })
+      }
+      return api.post<DiscoveryRun>('/api/v1/discovery/run', { icp_id: icp.id, count })
+    },
     onMutate: () => setError(null),
     onSuccess: (data) => {
       setResult(data)
@@ -178,29 +219,81 @@ function RunDialog({
       setError(caught instanceof ApiError ? caught.message : 'Discovery could not run.'),
   })
 
+  const set = (key: keyof typeof draft) => (event: React.ChangeEvent<HTMLInputElement>) =>
+    setDraft((previous) => ({ ...previous, [key]: event.target.value }))
+
   return (
-    <Modal title="Run discovery" onClose={run.isPending ? () => {} : onClose}>
+    <Modal title="Run discovery" onClose={run.isPending ? () => {} : onClose} width="max-w-xl">
       <div className="space-y-4 p-4">
         <div className="rounded-lg border border-line bg-plane p-3">
-          <p className="text-[13px] font-medium text-ink">{icp.name}</p>
-          <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-[12px]">
-            <Row label="Industry" value={icp.industry} />
-            <Row label="Region" value={icp.region} />
-            <Row
-              label="Headcount"
-              value={
-                icp.employee_min || icp.employee_max
-                  ? `${icp.employee_min ?? 'any'}–${icp.employee_max ?? 'any'}`
-                  : 'Any'
-              }
-            />
-            <Row label="Keywords" value={icp.keywords.join(', ') || 'None'} />
-          </dl>
-          <div className="mt-2.5 flex flex-wrap gap-1">
-            {icp.titles.map((title) => (
-              <Badge key={title}>{title}</Badge>
-            ))}
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-[13px] font-medium text-ink">{icp.name}</p>
+            {!result && (
+              <Button size="sm" variant="ghost" onClick={() => setEditing((on) => !on)}>
+                {editing ? 'Cancel edit' : 'Edit for this run'}
+              </Button>
+            )}
           </div>
+
+          {editing && !result ? (
+            <div className="mt-3 space-y-3">
+              <p className="text-[12px] text-ink-muted">
+                These changes are saved to the profile, so the fit score stays measured against
+                what the run actually used.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Industry">
+                  <Input value={draft.industry} onChange={set('industry')} />
+                </Field>
+                <Field label="Region">
+                  <Input value={draft.region} onChange={set('region')} />
+                </Field>
+                <Field label="Min headcount">
+                  <Input
+                    type="number"
+                    min={0}
+                    value={draft.employee_min}
+                    onChange={set('employee_min')}
+                  />
+                </Field>
+                <Field label="Max headcount">
+                  <Input
+                    type="number"
+                    min={0}
+                    value={draft.employee_max}
+                    onChange={set('employee_max')}
+                  />
+                </Field>
+              </div>
+              <Field label="Target job titles" hint="Comma separated.">
+                <Input value={draft.titles} onChange={set('titles')} />
+              </Field>
+              <Field label="Keywords">
+                <Input value={draft.keywords} onChange={set('keywords')} />
+              </Field>
+            </div>
+          ) : (
+            <>
+              <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-[12px]">
+                <Row label="Industry" value={icp.industry} />
+                <Row label="Region" value={icp.region} />
+                <Row
+                  label="Headcount"
+                  value={
+                    icp.employee_min || icp.employee_max
+                      ? `${icp.employee_min ?? 'any'}–${icp.employee_max ?? 'any'}`
+                      : 'Any'
+                  }
+                />
+                <Row label="Keywords" value={icp.keywords.join(', ') || 'None'} />
+              </dl>
+              <div className="mt-2.5 flex flex-wrap gap-1">
+                {icp.titles.map((title) => (
+                  <Badge key={title}>{title}</Badge>
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
         {result ? (
@@ -209,7 +302,8 @@ function RunDialog({
               {result.leads_created > 0
                 ? `Found ${result.leads_created} lead${result.leads_created === 1 ? '' : 's'} across ${result.companies_created} new compan${result.companies_created === 1 ? 'y' : 'ies'}.`
                 : 'The run finished but nothing survived validation. Try widening the profile.'}
-              {result.leads_rejected > 0 && ` ${result.leads_rejected} candidate(s) were rejected.`}
+              {result.leads_rejected > 0 &&
+                ` ${result.leads_rejected} candidate(s) were rejected.`}
             </Banner>
             <div className="flex justify-end">
               <Button variant="primary" onClick={onClose}>
@@ -240,7 +334,6 @@ function RunDialog({
             </Field>
 
             {error && <Banner tone="critical">{error}</Banner>}
-
             {run.isPending && (
               <Banner tone="info">
                 Searching, reading pages and extracting people. This usually takes 30–90 seconds —
@@ -259,6 +352,84 @@ function RunDialog({
           </>
         )}
       </div>
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
+
+function RunDetailDialog({ runId, onClose }: { runId: string; onClose: () => void }) {
+  const detail = useQuery({
+    queryKey: ['run', runId],
+    queryFn: () => api.get<DiscoveryRunDetail>(`/api/v1/discovery/runs/${runId}`),
+  })
+
+  return (
+    <Modal title="Run detail" onClose={onClose} width="max-w-2xl">
+      {detail.isLoading ? (
+        <Loading />
+      ) : detail.error ? (
+        <ErrorState error={detail.error} onRetry={() => detail.refetch()} />
+      ) : !detail.data ? null : (
+        <div className="space-y-4 p-4">
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[12px] sm:grid-cols-4">
+            <Row label="Started" value={dateTime(detail.data.started_at)} />
+            <Row label="Asked for" value={String(detail.data.requested_count)} />
+            <Row label="Kept" value={String(detail.data.leads_created)} />
+            <Row label="Rejected" value={String(detail.data.leads_rejected)} />
+          </dl>
+
+          {detail.data.error && <Banner tone="critical">{detail.data.error}</Banner>}
+
+          <section>
+            <h3 className="mb-1.5 text-[12px] font-semibold text-ink-muted">
+              Pages the agent actually read
+            </h3>
+            {(detail.data.agent_log.visited_urls ?? []).length === 0 ? (
+              <p className="text-[13px] text-ink-muted">None.</p>
+            ) : (
+              <ul className="space-y-1">
+                {detail.data.agent_log.visited_urls!.map((url) => (
+                  <li key={url}>
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[12px] break-all text-accent hover:underline"
+                    >
+                      {url}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-1.5 text-[12px] text-ink-muted">
+              A lead may only cite a page from this list. Anything else is discarded.
+            </p>
+          </section>
+
+          <section>
+            <h3 className="mb-1.5 text-[12px] font-semibold text-ink-muted">
+              What the agent did — {detail.data.agent_log.searches ?? 0} searches,{' '}
+              {detail.data.agent_log.fetches ?? 0} fetches
+            </h3>
+            <ol className="max-h-[260px] space-y-1.5 overflow-y-auto rounded-lg border border-line bg-plane p-3">
+              {(detail.data.agent_log.transcript ?? []).map((entry, index) => (
+                <li
+                  key={index}
+                  className="font-mono text-[11px] leading-relaxed break-all text-ink-secondary"
+                >
+                  {JSON.stringify(entry)}
+                </li>
+              ))}
+            </ol>
+          </section>
+
+          <div className="flex justify-end">
+            <Button onClick={onClose}>Close</Button>
+          </div>
+        </div>
+      )}
     </Modal>
   )
 }

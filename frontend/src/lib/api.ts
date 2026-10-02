@@ -246,6 +246,17 @@ export type DiscoveryRun = {
   completed_at: string | null
 }
 
+/** GET /discovery/runs/{id} adds the tool transcript: which queries ran, which
+ *  pages were read, and why each rejected candidate was rejected. */
+export type DiscoveryRunDetail = DiscoveryRun & {
+  agent_log: {
+    transcript?: Record<string, unknown>[]
+    visited_urls?: string[]
+    searches?: number
+    fetches?: number
+  }
+}
+
 export type Campaign = {
   id: string
   name: string

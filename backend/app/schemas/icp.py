@@ -29,6 +29,37 @@ class ICPCreate(BaseModel):
         return self
 
 
+class ICPUpdate(BaseModel):
+    """Every field optional — PATCH semantics.
+
+    Editing a profile re-aims both discovery and the fit score. They are
+    deliberately the same object: a lead scored against criteria the
+    salesperson has since changed would be quietly wrong.
+    """
+
+    name: str | None = Field(default=None, min_length=2, max_length=160)
+    industry: str | None = Field(default=None, min_length=2, max_length=120)
+    region: str | None = Field(default=None, min_length=2, max_length=120)
+    employee_min: int | None = Field(default=None, ge=0)
+    employee_max: int | None = Field(default=None, ge=0)
+    titles: list[str] | None = Field(default=None, min_length=1, max_length=10)
+    keywords: list[str] | None = Field(default=None, max_length=10)
+
+    @model_validator(mode="after")
+    def _clean(self) -> "ICPUpdate":
+        if self.employee_min is not None and self.employee_max is not None:
+            if self.employee_min > self.employee_max:
+                raise ValueError("employee_min must not exceed employee_max")
+        if self.titles is not None:
+            cleaned = [t.strip() for t in self.titles if t.strip()]
+            if not cleaned:
+                raise ValueError("titles must contain at least one non-empty value")
+            self.titles = cleaned
+        if self.keywords is not None:
+            self.keywords = [k.strip() for k in self.keywords if k.strip()]
+        return self
+
+
 class ICPOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

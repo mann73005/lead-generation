@@ -123,6 +123,23 @@ def _strip_gated_operators(query: str, policy: DiscoveryPolicy) -> str:
     return re.sub(r"\s{2,}", " ", cleaned) or query
 
 
+def _normalise_name(value: str) -> str:
+    """Collapse a person's name to a comparable key.
+
+    Apostrophes are deleted and other punctuation becomes a space, because the
+    two sit differently in a name: an apostrophe lives inside a word
+    ("O'Brien" is one word), a hyphen joins two ("Jean-Luc" is two). Treating
+    them alike gets one of the pair wrong.
+
+    Initials are deliberately *not* collapsed — folding "A K Sharma" into
+    "AK Sharma" would also merge two different people whose names start alike,
+    and the failure this guards against is a differently split name, not a
+    differently punctuated initial.
+    """
+    without_apostrophes = re.sub(r"['’]", "", value.lower())
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", without_apostrophes)).strip()
+
+
 def _seed_queries(icp: ICP, policy: DiscoveryPolicy) -> list[str]:
     """Opening searches derived from the ICP, no model involved.
 
@@ -469,17 +486,17 @@ def _create_lead(
     *, model: str, icp_owner_id=None,
 ) -> bool:
     """Create the lead unless it already exists. Returns whether it was new."""
-    duplicate = db.scalar(
-        select(Lead).where(
-            Lead.company_id == company.id,
-            func.lower(Lead.first_name) == candidate.first_name.lower(),
-            func.coalesce(func.lower(Lead.last_name), "") == (candidate.last_name or "").lower(),
-        )
-    )
-    if duplicate is not None:
-        if duplicate.email is None and candidate.email:
-            duplicate.email = candidate.email
-        return False
+    # Matched on the whole name rather than on first/last separately. Where a
+    # name is split is a decision the model makes, not a fact about the person:
+    # two runs over the same page produced "Preeti Anand"/"Raturi" and
+    # "Preeti"/"Anand Raturi", which a field-by-field comparison reads as two
+    # different people.
+    incoming = _normalise_name(f"{candidate.first_name} {candidate.last_name or ''}")
+    for existing in db.scalars(select(Lead).where(Lead.company_id == company.id)):
+        if _normalise_name(f"{existing.first_name} {existing.last_name or ''}") == incoming:
+            if existing.email is None and candidate.email:
+                existing.email = candidate.email
+            return False
 
     lead = Lead(
         company_id=company.id,

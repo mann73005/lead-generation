@@ -52,44 +52,32 @@ export function DashboardPage() {
       />
 
       <div className="space-y-5 p-6">
-        {/* Hero + supporting figures. Exactly one hero per view: the number the
-            salesperson should act on this morning. */}
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
-          <div className="panel flex flex-col justify-between p-5">
-            <div>
-              <p className="text-[12px] font-medium text-ink-muted">Ready to call today</p>
-              <p className="mt-1 text-[52px] leading-none font-semibold tracking-tight text-ink">
-                {data.hot}
-              </p>
-              <p className="mt-2 text-[13px] text-ink-secondary">
-                {data.hot === 0
-                  ? 'Nothing is scoring above 75 yet. Engagement moves leads up.'
-                  : `Scoring 75 or above out of ${data.total_leads} total.`}
-              </p>
-            </div>
-            <div className="mt-4 flex items-center gap-2">
-              <Badge tone="good">{data.warm} worth working</Badge>
-              <Badge>{data.cold} low priority</Badge>
-            </div>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Figure label="Leads" value={data.total_leads} sub="In your pipeline" />
-            <Figure
-              label="Average score"
-              value={data.average_score}
-              sub="Across all leads"
-            />
-            <Figure
-              label="Reply rate"
-              value={replyRate === null ? '—' : `${replyRate}%`}
-              sub={
-                data.emails_sent === 0
-                  ? 'No emails sent yet'
-                  : `${data.replies} of ${data.emails_sent} sent`
-              }
-            />
-          </div>
+        {/* One row of equal, compact tiles. The first carries the number the
+            salesperson should act on this morning and is marked by the accent
+            rule down its edge rather than by being twice as tall — stretching
+            one tile forces every tile beside it to match. */}
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Figure
+            label="Ready to call today"
+            value={data.hot}
+            sub={
+              data.hot === 0
+                ? 'Nothing above 75 yet'
+                : `Scoring 75+ of ${data.total_leads} leads`
+            }
+            lead
+          />
+          <Figure label="Leads" value={data.total_leads} sub={`${data.warm} worth working`} />
+          <Figure label="Average score" value={data.average_score} sub="Across all leads" />
+          <Figure
+            label="Reply rate"
+            value={replyRate === null ? '—' : `${replyRate}%`}
+            sub={
+              data.emails_sent === 0
+                ? 'No emails sent yet'
+                : `${data.replies} of ${data.emails_sent} sent`
+            }
+          />
         </div>
 
         <div className="grid gap-5 lg:grid-cols-2">
@@ -215,16 +203,28 @@ export function DashboardPage() {
   )
 }
 
-function Figure({ label, value, sub }: { label: string; value: React.ReactNode; sub: string }) {
+function Figure({
+  label,
+  value,
+  sub,
+  lead = false,
+}: {
+  label: string
+  value: React.ReactNode
+  sub: string
+  lead?: boolean
+}) {
   return (
-    <div className="panel p-4">
+    <div className={`panel relative overflow-hidden px-4 py-3.5 ${lead ? 'pl-[18px]' : ''}`}>
+      {lead && <span className="absolute inset-y-0 left-0 w-[3px] bg-accent" />}
       <p className="text-[12px] font-medium text-ink-muted">{label}</p>
-      {/* Proportional figures: tabular-nums makes a standalone number look
-          loose at display sizes. Columns of numbers use .tnum instead. */}
-      <p className="mt-1.5 text-[28px] leading-none font-semibold tracking-tight text-ink">
+      {/* Proportional figures: tabular-nums gives every digit the width of a
+          zero, which makes a standalone number look loose at display sizes.
+          Columns of figures use .tnum instead. */}
+      <p className="mt-1 text-[26px] leading-none font-semibold tracking-tight text-ink">
         {value}
       </p>
-      <p className="mt-1.5 text-[12px] text-ink-muted">{sub}</p>
+      <p className="mt-1 text-[12px] text-ink-muted">{sub}</p>
     </div>
   )
 }
