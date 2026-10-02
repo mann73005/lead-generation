@@ -1,40 +1,66 @@
-# Render alternative to Railway. Render still has a genuinely free web service
-# tier; Railway's is now a trial credit. The service is identical either way —
-# only this descriptor differs, because the app is containerised.
+# Render blueprint.
+#
+# Paths are repo-root relative rather than using `rootDir`: Render resolves
+# dockerfilePath from the repository root regardless, and mixing the two is the
+# usual reason a Docker build cannot find its context.
 #
 # Free instances sleep after ~15 minutes idle and take roughly 50 seconds to
-# wake. That matters here: the open-tracking pixel is fetched by the
-# recipient's mail client, and a cold start can delay or drop that request. For
-# a live demo, hit /health first to warm the instance.
+# wake. That matters more here than for most APIs: the open-tracking pixel is
+# fetched by the recipient's mail client, and a cold start can delay or drop
+# that request. Warm the service with GET /health before a live demo.
+#
+# Secrets are marked `sync: false`, so Render prompts for them at deploy time
+# and they never live in the repository.
 
 services:
   - type: web
     name: stylesense-api
     runtime: docker
-    rootDir: backend
-    dockerfilePath: ./Dockerfile
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
     plan: free
+    region: singapore
     healthCheckPath: /health
+    autoDeployTrigger: commit
     envVars:
+      # --- Database -----------------------------------------------------
       - key: DATABASE_URL
         sync: false
+
+      # --- Auth ---------------------------------------------------------
       - key: JWT_SECRET
         generateValue: true
-      - key: GEMINI_API_KEY
-        sync: false
-      - key: TAVILY_API_KEY
-        sync: false
-      - key: RESEND_API_KEY
-        sync: false
-      - key: EMAIL_OVERRIDE_TO
-        sync: false
-      - key: EMAIL_FROM_ADDRESS
-        sync: false
       - key: BOOTSTRAP_USER_EMAIL
         sync: false
       - key: BOOTSTRAP_USER_PASSWORD
         sync: false
-      - key: CORS_ORIGINS
+
+      # --- AI providers -------------------------------------------------
+      - key: GEMINI_API_KEY
         sync: false
+      - key: LLM_MODEL
+        value: gemini-3.8-flash
+      - key: LLM_FALLBACK_MODELS
+        value: gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3-flash-preview,gemini-3.1-flash-lite,gemini-3.5-flash
+      - key: TAVILY_API_KEY
+        sync: false
+
+      # --- Email --------------------------------------------------------
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM_ADDRESS
+        value: onboarding@resend.dev
+      # Every outbound send is redirected here, so a discovered prospect can
+      # never be contacted. Set it to an inbox you own.
+      - key: EMAIL_OVERRIDE_TO
+        sync: false
+
+      # --- App ----------------------------------------------------------
       - key: ENVIRONMENT
         value: production
+      - key: CORS_ORIGINS
+        sync: false
+
+      # PUBLIC_BASE_URL is deliberately absent: the app derives it from
+      # RENDER_EXTERNAL_HOSTNAME, so the tracking pixel URL follows the
+      # service's real domain instead of a value that silently goes stale.
