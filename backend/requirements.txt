@@ -1,0 +1,30 @@
+# --- Web framework ---
+fastapi>=0.115,<0.116
+uvicorn[standard]>=0.34,<0.35
+python-multipart>=0.0.20
+
+# --- Database ---
+sqlalchemy>=2.0.36,<2.1
+alembic>=1.14,<2.0
+psycopg[binary]>=3.2,<4.0
+
+# --- Validation / settings ---
+pydantic>=2.10,<3.0
+pydantic-settings>=2.7,<3.0
+email-validator>=2.2
+PyYAML>=6.0,<7.0
+
+# --- Auth ---
+PyJWT>=2.10,<3.0
+bcrypt>=4.2,<5.0
+
+# --- External providers ---
+# Gemini and Tavily are called over plain HTTP rather than through their SDKs:
+# both surfaces are small, and the provider interfaces in app/providers need to
+# expose retries and failure modes that the SDKs hide.
+httpx>=0.28,<0.29
+resend>=2.4
+tenacity>=9.0
+
+# --- Tooling ---
+python-dotenv>=1.0
