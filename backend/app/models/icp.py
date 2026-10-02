@@ -20,6 +20,11 @@ class ICP(UUIDMixin, TimestampMixin, Base):
 
     __tablename__ = "icps"
 
+    #: Who defined this profile. Members see only their own; admins see all.
+    owner_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     industry: Mapped[str] = mapped_column(String(120), nullable=False)
     region: Mapped[str] = mapped_column(String(120), nullable=False)

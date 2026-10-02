@@ -23,9 +23,9 @@ from app.schemas.lead import LeadOut
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 
 
-def _get_campaign(db: Session, campaign_id: UUID) -> Campaign:
+def _get_campaign(db: Session, campaign_id: UUID, user) -> Campaign:
     campaign = db.get(Campaign, campaign_id)
-    if campaign is None:
+    if campaign is None or (not user.is_admin and campaign.owner_id != user.id):
         raise NotFoundError(f"Campaign {campaign_id} does not exist")
     return campaign
 
@@ -53,35 +53,36 @@ def _with_stats(db: Session, campaign: Campaign) -> CampaignStatsOut:
 
 
 @router.post("", response_model=CampaignOut, status_code=status.HTTP_201_CREATED)
-def create_campaign(payload: CampaignCreate, db: DbSession, _: CurrentUser) -> Campaign:
+def create_campaign(payload: CampaignCreate, db: DbSession, user: CurrentUser) -> Campaign:
     if payload.icp_id is not None and db.get(ICP, payload.icp_id) is None:
         raise NotFoundError(f"ICP {payload.icp_id} does not exist")
 
-    campaign = Campaign(**payload.model_dump())
+    campaign = Campaign(**payload.model_dump(), owner_id=user.id)
     db.add(campaign)
     db.flush()
     return campaign
 
 
 @router.get("", response_model=Page[CampaignStatsOut])
-def list_campaigns(db: DbSession, _: CurrentUser, page: Pagination) -> Page[CampaignStatsOut]:
-    total = db.scalar(select(func.count(Campaign.id))) or 0
+def list_campaigns(db: DbSession, user: CurrentUser, page: Pagination) -> Page[CampaignStatsOut]:
+    mine = [] if user.is_admin else [Campaign.owner_id == user.id]
+    total = db.scalar(select(func.count(Campaign.id)).where(*mine)) or 0
     rows = db.scalars(
-        select(Campaign).order_by(Campaign.created_at.desc()).limit(page.limit).offset(page.offset)
+        select(Campaign).where(*mine).order_by(Campaign.created_at.desc()).limit(page.limit).offset(page.offset)
     )
     return Page.build([_with_stats(db, c) for c in rows], total, page)
 
 
 @router.get("/{campaign_id}", response_model=CampaignStatsOut)
-def get_campaign(campaign_id: UUID, db: DbSession, _: CurrentUser) -> CampaignStatsOut:
-    return _with_stats(db, _get_campaign(db, campaign_id))
+def get_campaign(campaign_id: UUID, db: DbSession, user: CurrentUser) -> CampaignStatsOut:
+    return _with_stats(db, _get_campaign(db, campaign_id, user))
 
 
 @router.patch("/{campaign_id}", response_model=CampaignOut)
 def update_campaign(
-    campaign_id: UUID, payload: CampaignUpdate, db: DbSession, _: CurrentUser
+    campaign_id: UUID, payload: CampaignUpdate, db: DbSession, user: CurrentUser
 ) -> Campaign:
-    campaign = _get_campaign(db, campaign_id)
+    campaign = _get_campaign(db, campaign_id, user)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(campaign, field, value)
     db.flush()
@@ -90,14 +91,14 @@ def update_campaign(
 
 @router.post("/{campaign_id}/leads", response_model=dict, status_code=status.HTTP_201_CREATED)
 def add_leads(
-    campaign_id: UUID, payload: AddLeadsRequest, db: DbSession, _: CurrentUser
+    campaign_id: UUID, payload: AddLeadsRequest, db: DbSession, user: CurrentUser
 ) -> dict[str, int | list[str]]:
     """Add leads to a campaign, ignoring ones already in it.
 
     Idempotent by design: re-posting the same list is a no-op rather than a
     409, because the console's "add selected" button is easy to double-click.
     """
-    campaign = _get_campaign(db, campaign_id)
+    campaign = _get_campaign(db, campaign_id, user)
 
     requested = set(payload.lead_ids)
     existing_ids = set(
@@ -121,13 +122,13 @@ def add_leads(
 
 @router.get("/{campaign_id}/leads", response_model=Page[LeadOut])
 def list_campaign_leads(
-    campaign_id: UUID, db: DbSession, _: CurrentUser, page: Pagination
+    campaign_id: UUID, db: DbSession, user: CurrentUser, page: Pagination
 ) -> Page[LeadOut]:
     from sqlalchemy.orm import selectinload
 
     from app.models import LeadScore
 
-    campaign = _get_campaign(db, campaign_id)
+    campaign = _get_campaign(db, campaign_id, user)
     lead_ids = select(CampaignLead.lead_id).where(CampaignLead.campaign_id == campaign.id)
 
     total = db.scalar(select(func.count(Lead.id)).where(Lead.id.in_(lead_ids))) or 0

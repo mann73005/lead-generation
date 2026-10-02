@@ -389,7 +389,7 @@ def run_discovery(db: Session, icp: ICP, *, requested_count: int = 8) -> Discove
         for candidate in outcome.accepted:
             company, created = _upsert_company(db, candidate, model=raw.model)
             companies_created += int(created)
-            if _create_lead(db, company, candidate, run, model=raw.model):
+            if _create_lead(db, company, candidate, run, model=raw.model, icp_owner_id=icp.owner_id):
                 leads_created += 1
 
         run.status = DiscoveryRunStatus.COMPLETED
@@ -465,7 +465,8 @@ def _upsert_company(db: Session, candidate: ExtractedLead, *, model: str) -> tup
 
 
 def _create_lead(
-    db: Session, company: Company, candidate: ExtractedLead, run: DiscoveryRun, *, model: str
+    db: Session, company: Company, candidate: ExtractedLead, run: DiscoveryRun,
+    *, model: str, icp_owner_id=None,
 ) -> bool:
     """Create the lead unless it already exists. Returns whether it was new."""
     duplicate = db.scalar(
@@ -483,6 +484,9 @@ def _create_lead(
     lead = Lead(
         company_id=company.id,
         discovery_run_id=run.id,
+        # Inherited from whoever defined the ICP, so a discovered lead
+        # lands in that salesperson's list rather than nobody's.
+        owner_id=icp_owner_id,
         first_name=candidate.first_name,
         last_name=candidate.last_name,
         job_title=candidate.job_title,

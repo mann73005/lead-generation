@@ -98,6 +98,18 @@ class SuppressionReason(StrEnum):
     REPLY_OPT_OUT = "reply_opt_out"
 
 
+class UserRole(StrEnum):
+    """Who can see and do what.
+
+    A member works their own list; an admin manages accounts and sees
+    everyone's. Deliberately two roles rather than a permission system —
+    anything finer would be scaffolding for a requirement nobody has.
+    """
+
+    ADMIN = "admin"
+    MEMBER = "member"
+
+
 class DiscoveryRunStatus(StrEnum):
     RUNNING = "running"
     COMPLETED = "completed"

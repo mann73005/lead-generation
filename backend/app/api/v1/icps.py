@@ -15,25 +15,29 @@ router = APIRouter(prefix="/icps", tags=["icps"])
 
 
 @router.post("", response_model=ICPOut, status_code=status.HTTP_201_CREATED)
-def create_icp(payload: ICPCreate, db: DbSession, _: CurrentUser) -> ICP:
-    icp = ICP(**payload.model_dump())
+def create_icp(payload: ICPCreate, db: DbSession, user: CurrentUser) -> ICP:
+    icp = ICP(**payload.model_dump(), owner_id=user.id)
     db.add(icp)
     db.flush()
     return icp
 
 
 @router.get("", response_model=Page[ICPOut])
-def list_icps(db: DbSession, _: CurrentUser, page: Pagination) -> Page[ICPOut]:
-    total = db.scalar(select(func.count(ICP.id))) or 0
+def list_icps(db: DbSession, user: CurrentUser, page: Pagination) -> Page[ICPOut]:
+    mine = [] if user.is_admin else [ICP.owner_id == user.id]
+    total = db.scalar(select(func.count(ICP.id)).where(*mine)) or 0
     rows = db.scalars(
-        select(ICP).order_by(ICP.created_at.desc()).limit(page.limit).offset(page.offset)
+        select(ICP).where(*mine).order_by(ICP.created_at.desc()).limit(page.limit).offset(page.offset)
     )
     return Page.build([ICPOut.model_validate(r) for r in rows], total, page)
 
 
 @router.get("/{icp_id}", response_model=ICPOut)
-def get_icp(icp_id: UUID, db: DbSession, _: CurrentUser) -> ICP:
+def get_icp(icp_id: UUID, db: DbSession, user: CurrentUser) -> ICP:
     icp = db.get(ICP, icp_id)
-    if icp is None:
+    # A member asking for someone else's ICP gets the same answer as for
+    # one that does not exist: a 404 that distinguishes them is an
+    # existence oracle.
+    if icp is None or (not user.is_admin and icp.owner_id != user.id):
         raise NotFoundError(f"ICP {icp_id} does not exist")
     return icp

@@ -20,8 +20,18 @@ router = APIRouter(prefix="/leads", tags=["leads"])
 SortField = Literal["score", "created_at", "name"]
 
 
-def _get_lead(db: Session, lead_id: UUID, *, detail: bool = False) -> Lead:
-    stmt = select(Lead).where(Lead.id == lead_id).options(
+def _visible(stmt: Select, user) -> Select:
+    """Restrict a lead query to what this user may see.
+
+    Applied in one helper rather than at each call site: a route that
+    forgets the filter leaks another salesperson's pipeline, and that is
+    not the kind of thing to leave to discipline.
+    """
+    return stmt if user.is_admin else stmt.where(Lead.owner_id == user.id)
+
+
+def _get_lead(db: Session, lead_id: UUID, user, *, detail: bool = False) -> Lead:
+    stmt = _visible(select(Lead).where(Lead.id == lead_id), user).options(
         selectinload(Lead.company), selectinload(Lead.score)
     )
     if detail:
@@ -78,7 +88,7 @@ def _apply_filters(
 @router.get("", response_model=Page[LeadOut])
 def list_leads(
     db: DbSession,
-    _: CurrentUser,
+    user: CurrentUser,
     page: Pagination,
     q: Annotated[str | None, Query(max_length=120, description="Name, title, email or company.")] = None,
     industry: Annotated[str | None, Query(max_length=120)] = None,
@@ -117,7 +127,7 @@ def list_leads(
             .join(Company, Lead.company_id == Company.id)
             .outerjoin(LeadScore, LeadScore.lead_id == Lead.id),
             **filters,
-        )
+        ).where(*([] if user.is_admin else [Lead.owner_id == user.id]))
     ) or 0
 
     columns = {
@@ -131,7 +141,7 @@ def list_leads(
     ordering = column.desc().nulls_last() if order == "desc" else column.asc().nulls_last()
 
     stmt = (
-        _apply_filters(base, **filters)
+        _visible(_apply_filters(base, **filters), user)
         .options(selectinload(Lead.company), selectinload(Lead.score))
         .order_by(ordering, Lead.id)
         .limit(page.limit)
@@ -142,12 +152,12 @@ def list_leads(
 
 
 @router.get("/{lead_id}", response_model=LeadDetailOut)
-def get_lead(lead_id: UUID, db: DbSession, _: CurrentUser) -> Lead:
-    return _get_lead(db, lead_id, detail=True)
+def get_lead(lead_id: UUID, db: DbSession, user: CurrentUser) -> Lead:
+    return _get_lead(db, lead_id, user, detail=True)
 
 
 @router.post("", response_model=LeadOut, status_code=status.HTTP_201_CREATED)
-def create_lead(payload: LeadCreate, db: DbSession, _: CurrentUser) -> Lead:
+def create_lead(payload: LeadCreate, db: DbSession, user: CurrentUser) -> Lead:
     company = db.get(Company, payload.company_id)
     if company is None:
         raise NotFoundError(f"Company {payload.company_id} does not exist")
@@ -161,7 +171,7 @@ def create_lead(payload: LeadCreate, db: DbSession, _: CurrentUser) -> Lead:
             details={"existing_lead_id": str(duplicate.id)},
         )
 
-    lead = Lead(**payload.model_dump())
+    lead = Lead(**payload.model_dump(), owner_id=user.id)
     db.add(lead)
     db.flush()
 
@@ -173,8 +183,8 @@ def create_lead(payload: LeadCreate, db: DbSession, _: CurrentUser) -> Lead:
 
 
 @router.patch("/{lead_id}", response_model=LeadOut)
-def update_lead(lead_id: UUID, payload: LeadUpdate, db: DbSession, _: CurrentUser) -> Lead:
-    lead = _get_lead(db, lead_id)
+def update_lead(lead_id: UUID, payload: LeadUpdate, db: DbSession, user: CurrentUser) -> Lead:
+    lead = _get_lead(db, lead_id, user)
 
     updates = payload.model_dump(exclude_unset=True)
     for field, value in updates.items():
@@ -190,19 +200,19 @@ def update_lead(lead_id: UUID, payload: LeadUpdate, db: DbSession, _: CurrentUse
 
 
 @router.delete("/{lead_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_lead(lead_id: UUID, db: DbSession, _: CurrentUser) -> None:
-    lead = _get_lead(db, lead_id)
+def delete_lead(lead_id: UUID, db: DbSession, user: CurrentUser) -> None:
+    lead = _get_lead(db, lead_id, user)
     db.delete(lead)
 
 
 @router.post("/{lead_id}/rescore", response_model=LeadOut)
-def rescore_lead(lead_id: UUID, db: DbSession, _: CurrentUser) -> Lead:
+def rescore_lead(lead_id: UUID, db: DbSession, user: CurrentUser) -> Lead:
     """Force a recompute from event history.
 
     Useful after editing `config/scoring.yaml`, and the clearest demonstration
     that scores are derived rather than stored progressively.
     """
-    lead = _get_lead(db, lead_id)
+    lead = _get_lead(db, lead_id, user)
     apply_score(db, lead, reason="Manual rescore")
     db.refresh(lead)
     return lead

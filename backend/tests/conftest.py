@@ -15,6 +15,7 @@ from app.core.database import engine, get_db
 from app.core.security import hash_password
 from app.main import app
 from app.models import ICP, Company, Lead, User
+from app.models.enums import UserRole
 from app.providers.mocks import MockEmailProvider, MockLLMProvider
 from app.services.lead_scores import apply_score
 
@@ -65,10 +66,41 @@ def client(db: Session) -> Iterator[TestClient]:
 
 @pytest.fixture
 def user(db: Session) -> User:
-    record = User(email="tester@stylesense.ai", hashed_password=hash_password(TEST_PASSWORD))
+    """The default actor: an administrator.
+
+    Most tests are about lead handling rather than visibility, and an admin
+    sees everything, which keeps them focused. Role scoping has its own tests
+    in test_roles.py using the `member` fixture below.
+    """
+    record = User(
+        email="tester@stylesense.ai",
+        hashed_password=hash_password(TEST_PASSWORD),
+        role=UserRole.ADMIN,
+    )
     db.add(record)
     db.flush()
     return record
+
+
+@pytest.fixture
+def member(db: Session) -> User:
+    record = User(
+        email="member@stylesense.ai",
+        hashed_password=hash_password(TEST_PASSWORD),
+        role=UserRole.MEMBER,
+    )
+    db.add(record)
+    db.flush()
+    return record
+
+
+@pytest.fixture
+def member_auth(client: TestClient, member: User) -> dict[str, str]:
+    response = client.post(
+        "/api/v1/auth/login", json={"email": member.email, "password": TEST_PASSWORD}
+    )
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
 @pytest.fixture
@@ -112,8 +144,9 @@ def company(db: Session) -> Company:
 
 
 @pytest.fixture
-def lead(db: Session, company: Company) -> Lead:
+def lead(db: Session, company: Company, user: User) -> Lead:
     record = Lead(
+        owner_id=user.id,
         company_id=company.id,
         first_name="Rahul",
         last_name="Sharma",

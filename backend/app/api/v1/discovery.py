@@ -27,9 +27,9 @@ class DiscoveryRequest(BaseModel):
 
 
 @router.post("/run", response_model=DiscoveryRunOut, status_code=status.HTTP_201_CREATED)
-def start_run(payload: DiscoveryRequest, db: DbSession, _: CurrentUser) -> DiscoveryRun:
+def start_run(payload: DiscoveryRequest, db: DbSession, user: CurrentUser) -> DiscoveryRun:
     icp = db.get(ICP, payload.icp_id)
-    if icp is None:
+    if icp is None or (not user.is_admin and icp.owner_id != user.id):
         raise NotFoundError(f"ICP {payload.icp_id} does not exist")
 
     # A failed run is persisted with its error and transcript rather than

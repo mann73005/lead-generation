@@ -51,6 +51,13 @@ class BadRequestError(AppError):
     code = "bad_request"
 
 
+class ForbiddenError(AppError):
+    """Authenticated, but not allowed to do this."""
+
+    status_code = 403
+    code = "forbidden"
+
+
 class SuppressedRecipientError(ConflictError):
     """Attempted send to an address on the suppression list."""
 

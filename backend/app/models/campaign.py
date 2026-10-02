@@ -34,6 +34,11 @@ def _token() -> str:
 class Campaign(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "campaigns"
 
+    #: Who runs this campaign.
+    owner_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     icp_id: Mapped[UUID | None] = mapped_column(ForeignKey("icps.id", ondelete="SET NULL"), index=True)

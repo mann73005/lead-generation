@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.exceptions import UnauthorizedError
+from app.core.exceptions import ForbiddenError, UnauthorizedError
 from app.core.security import decode_token
 from app.models import User
 from app.schemas.common import PageParams
@@ -43,3 +43,17 @@ def get_current_user(
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+def require_admin(user: "CurrentUser") -> User:
+    """Guard for account management.
+
+    403 rather than 404: the caller is authenticated and the route exists, so
+    pretending otherwise would only make the API harder to work with.
+    """
+    if not user.is_admin:
+        raise ForbiddenError("This action requires an administrator account")
+    return user
+
+
+AdminUser = Annotated[User, Depends(require_admin)]

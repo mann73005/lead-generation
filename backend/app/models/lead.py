@@ -51,6 +51,13 @@ class Lead(UUIDMixin, TimestampMixin, Base):
         ForeignKey("discovery_runs.id", ondelete="SET NULL"), index=True
     )
 
+    #: Denormalised from the ICP that discovered the lead, or set to the
+    #: creating user. Stored on the row so the console can filter a large
+    #: list without joining back through discovery_runs on every query.
+    owner_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+
     first_name: Mapped[str] = mapped_column(String(120), nullable=False)
     last_name: Mapped[str | None] = mapped_column(String(120))
     email: Mapped[str | None] = mapped_column(String(320))
