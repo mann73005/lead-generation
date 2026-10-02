@@ -1,18 +1,36 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 
+import { ColumnChart, FunnelChart } from '../components/charts'
 import { PageHeader } from '../components/Layout'
-import { Badge, Card, EmptyState, ErrorState, Loading, Stat, Table, Td, Th } from '../components/ui'
-import { api, type Dashboard } from '../lib/api'
+import { Badge, Button, Card, EmptyState, ErrorState, Loading, ScoreMeter } from '../components/ui'
+import { api, type Dashboard, type Lead, type Page } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { STATUS_TONE, humanise } from '../lib/format'
 
 export function DashboardPage() {
   const { user } = useAuth()
-  const { data, isLoading, error, refetch } = useQuery({
+
+  const summary = useQuery({
     queryKey: ['dashboard'],
     queryFn: () => api.get<Dashboard>('/api/v1/dashboard'),
   })
+
+  const top = useQuery({
+    queryKey: ['leads', 'top'],
+    queryFn: () => api.get<Page<Lead>>('/api/v1/leads', { limit: 6, sort: 'score' }),
+  })
+
+  if (summary.isLoading) return <Loading label="Loading overview" />
+  if (summary.error)
+    return <ErrorState error={summary.error} onRetry={() => summary.refetch()} />
+  if (!summary.data) return null
+
+  const data = summary.data
+  const replyRate =
+    data.emails_sent > 0 ? Math.round((data.replies / data.emails_sent) * 100) : null
+
+  if (data.total_leads === 0) return <FirstRun />
 
   return (
     <>
@@ -23,128 +41,257 @@ export function DashboardPage() {
             ? 'Every lead across the team.'
             : 'The leads assigned to you.'
         }
+        action={
+          <Link
+            to="/leads?min_score=75"
+            className="inline-flex h-9 items-center rounded-lg bg-accent px-3.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+          >
+            Work the hot list
+          </Link>
+        }
       />
 
-      <div className="p-6">
-        {isLoading ? (
-          <Loading label="Loading overview" />
-        ) : error ? (
-          <ErrorState error={error} onRetry={() => refetch()} />
-        ) : !data ? null : (
-          <div className="space-y-6">
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <Stat
-                label="Leads"
-                value={data.total_leads}
-                sub={`Average score ${data.average_score}`}
-              />
-              <Stat
-                label="High priority"
-                value={data.hot}
-                sub="Scoring 75 or above"
-                tone="good"
-              />
-              <Stat label="Worth working" value={data.warm} sub="Scoring 50–74" tone="warning" />
-              <Stat label="Low priority" value={data.cold} sub="Below 50" tone="neutral" />
+      <div className="space-y-5 p-6">
+        {/* Hero + supporting figures. Exactly one hero per view: the number the
+            salesperson should act on this morning. */}
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+          <div className="panel flex flex-col justify-between p-5">
+            <div>
+              <p className="text-[12px] font-medium text-ink-muted">Ready to call today</p>
+              <p className="mt-1 text-[52px] leading-none font-semibold tracking-tight text-ink">
+                {data.hot}
+              </p>
+              <p className="mt-2 text-[13px] text-ink-secondary">
+                {data.hot === 0
+                  ? 'Nothing is scoring above 75 yet. Engagement moves leads up.'
+                  : `Scoring 75 or above out of ${data.total_leads} total.`}
+              </p>
             </div>
+            <div className="mt-4 flex items-center gap-2">
+              <Badge tone="good">{data.warm} worth working</Badge>
+              <Badge>{data.cold} low priority</Badge>
+            </div>
+          </div>
 
-            <Card title="Outreach funnel">
-              {/* Counted as distinct leads, not events: three opens from one
-                  person is one engaged lead. */}
-              <div className="grid gap-px bg-line sm:grid-cols-4">
-                {[
-                  { label: 'Emails sent', value: data.emails_sent },
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Figure label="Leads" value={data.total_leads} sub="In your pipeline" />
+            <Figure
+              label="Average score"
+              value={data.average_score}
+              sub="Across all leads"
+            />
+            <Figure
+              label="Reply rate"
+              value={replyRate === null ? '—' : `${replyRate}%`}
+              sub={
+                data.emails_sent === 0
+                  ? 'No emails sent yet'
+                  : `${data.replies} of ${data.emails_sent} sent`
+              }
+            />
+          </div>
+        </div>
+
+        <div className="grid gap-5 lg:grid-cols-2">
+          <Card title="Outreach funnel">
+            <div className="p-4">
+              <FunnelChart
+                data={[
+                  { label: 'Sent', value: data.emails_sent },
+                  { label: 'Delivered', value: data.emails_sent },
                   { label: 'Opened', value: data.emails_opened },
                   { label: 'Replied', value: data.replies },
-                  { label: 'Unsubscribed', value: data.unsubscribes },
-                ].map((item) => (
-                  <div key={item.label} className="bg-surface px-4 py-3.5">
-                    <p className="text-[12px] font-medium text-ink-muted">{item.label}</p>
-                    <p className="mt-1 text-xl font-semibold text-ink">{item.value}</p>
-                  </div>
-                ))}
-              </div>
-              <p className="border-t border-line px-4 py-2 text-[12px] text-ink-muted">
-                Each figure counts distinct leads, so repeat opens do not inflate it.
-              </p>
-            </Card>
+                ]}
+                caption="Each stage counts distinct leads, so repeat opens do not inflate it."
+              />
+            </div>
+          </Card>
 
-            <div className="grid gap-6 lg:grid-cols-2">
-              <Card title="Pipeline by stage">
-                {data.by_status.length === 0 ? (
-                  <EmptyState
-                    title="No activity yet"
-                    description="Run a discovery to find leads, then send your first outreach."
-                  />
-                ) : (
-                  <Table>
-                    <tbody>
-                      {data.by_status
-                        .slice()
-                        .sort((a, b) => b.count - a.count)
-                        .map((row) => (
-                          <tr key={row.status}>
-                            <Td>
-                              <Badge tone={STATUS_TONE[row.status]}>{humanise(row.status)}</Badge>
-                            </Td>
-                            <Td className="tnum text-right font-medium">{row.count}</Td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </Table>
-                )}
-              </Card>
-
-              {user?.role === 'admin' && (
-                <Card title="By salesperson">
-                  {data.by_owner.length === 0 ? (
-                    <EmptyState title="Nobody has leads yet" />
-                  ) : (
-                    <Table>
-                      <thead>
-                        <tr>
-                          <Th>Person</Th>
-                          <Th className="text-right">Leads</Th>
-                          <Th className="text-right">High priority</Th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {data.by_owner.map((row) => (
-                          <tr key={row.user_id ?? 'unassigned'}>
-                            <Td>
-                              <span className="text-ink">
-                                {row.full_name || row.email || 'Unassigned'}
-                              </span>
-                            </Td>
-                            <Td className="tnum text-right">{row.leads}</Td>
-                            <Td className="tnum text-right">{row.hot}</Td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </Table>
-                  )}
-                </Card>
+          <Card title="Where the pipeline sits">
+            <div className="p-4">
+              <ColumnChart
+                data={[
+                  { label: 'Low', value: data.cold },
+                  { label: 'Worth working', value: data.warm },
+                  { label: 'Hot', value: data.hot },
+                ]}
+                caption="Leads by score band. Fit sets the starting number; engagement moves it."
+              />
+              {data.unsubscribes > 0 && (
+                <p className="mt-3 border-t border-line pt-3 text-[12px] text-ink-muted">
+                  {data.unsubscribes} lead{data.unsubscribes === 1 ? ' has' : 's have'}{' '}
+                  unsubscribed and will not be contacted again.
+                </p>
               )}
             </div>
+          </Card>
+        </div>
 
-            {data.total_leads === 0 && (
-              <Card>
-                <EmptyState
-                  title="No leads yet"
-                  description="Define who you are selling to, and discovery will go and find matching people on the web."
-                  action={
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,340px)]">
+          <Card
+            title="Highest scoring leads"
+            action={
+              <Link to="/leads" className="text-[12px] text-accent hover:underline">
+                View all
+              </Link>
+            }
+          >
+            {top.isLoading ? (
+              <Loading />
+            ) : (top.data?.items.length ?? 0) === 0 ? (
+              <EmptyState title="No leads yet" />
+            ) : (
+              <ul className="divide-y divide-line">
+                {top.data!.items.map((lead) => (
+                  <li key={lead.id}>
                     <Link
-                      to="/discovery"
-                      className="inline-flex h-9 items-center rounded-md bg-accent px-3.5 text-sm font-medium text-white hover:bg-accent-hover"
+                      to={`/leads/${lead.id}`}
+                      className="flex items-center gap-4 px-4 py-3 transition-colors hover:bg-sunken/70"
                     >
-                      Set up discovery
+                      <ScoreMeter score={lead.score?.total_score ?? null} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13px] font-medium text-ink">
+                          {lead.full_name}
+                        </span>
+                        <span className="block truncate text-[12px] text-ink-muted">
+                          {lead.job_title} · {lead.company.name}
+                        </span>
+                      </span>
+                      <Badge tone={STATUS_TONE[lead.score?.status ?? 'new']}>
+                        {humanise(lead.score?.status ?? 'new')}
+                      </Badge>
                     </Link>
-                  }
-                />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <div className="space-y-5">
+            <Card title="Pipeline by stage">
+              {data.by_status.length === 0 ? (
+                <EmptyState title="No activity yet" />
+              ) : (
+                <ul className="divide-y divide-line">
+                  {[...data.by_status]
+                    .sort((a, b) => b.count - a.count)
+                    .map((row) => (
+                      <li
+                        key={row.status}
+                        className="flex items-center justify-between px-4 py-2.5"
+                      >
+                        <Badge tone={STATUS_TONE[row.status]}>{humanise(row.status)}</Badge>
+                        <span className="tnum text-[13px] font-medium text-ink">{row.count}</span>
+                      </li>
+                    ))}
+                </ul>
+              )}
+            </Card>
+
+            {user?.role === 'admin' && data.by_owner.length > 0 && (
+              <Card title="By salesperson">
+                <ul className="divide-y divide-line">
+                  {data.by_owner.map((row) => (
+                    <li
+                      key={row.user_id ?? 'unassigned'}
+                      className="flex items-center justify-between gap-3 px-4 py-2.5"
+                    >
+                      <span className="min-w-0 truncate text-[13px] text-ink">
+                        {row.full_name || row.email || 'Unassigned'}
+                      </span>
+                      <span className="flex shrink-0 items-baseline gap-3">
+                        <span className="tnum text-[13px] text-ink-secondary">{row.leads}</span>
+                        <span className="tnum text-[12px] text-ink-muted">{row.hot} hot</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               </Card>
             )}
           </div>
-        )}
+        </div>
+      </div>
+    </>
+  )
+}
+
+function Figure({ label, value, sub }: { label: string; value: React.ReactNode; sub: string }) {
+  return (
+    <div className="panel p-4">
+      <p className="text-[12px] font-medium text-ink-muted">{label}</p>
+      {/* Proportional figures: tabular-nums makes a standalone number look
+          loose at display sizes. Columns of numbers use .tnum instead. */}
+      <p className="mt-1.5 text-[28px] leading-none font-semibold tracking-tight text-ink">
+        {value}
+      </p>
+      <p className="mt-1.5 text-[12px] text-ink-muted">{sub}</p>
+    </div>
+  )
+}
+
+/** What a brand new account sees. Explaining the loop beats showing four
+ *  panels of zeroes. */
+function FirstRun() {
+  const steps = [
+    {
+      title: 'Describe who you sell to',
+      body: 'Industry, region, headcount and the job titles that matter. This drives both the search and the fit score.',
+    },
+    {
+      title: 'Let discovery find them',
+      body: 'It searches the live web, reads the pages it finds, and extracts real named people — each stored with the page it came from.',
+    },
+    {
+      title: 'Send grounded outreach',
+      body: 'Every claim in the email traces back to something on file. Anything that cannot be verified is dropped rather than guessed.',
+    },
+    {
+      title: 'Work the ranked list',
+      body: 'Opens and replies move a lead up the list, and every change records why.',
+    },
+  ]
+
+  return (
+    <>
+      <PageHeader title="Overview" description="Nothing here yet — here is how it works." />
+      <div className="p-6">
+        <div className="panel mx-auto max-w-3xl p-8">
+          <h2 className="text-lg font-semibold tracking-tight text-ink">
+            Find the right people, and say something true to them
+          </h2>
+          <p className="mt-1.5 max-w-xl text-[13px] text-ink-secondary">
+            This console takes a description of your ideal customer and turns it into a ranked
+            list of real people worth calling.
+          </p>
+
+          <ol className="mt-7 space-y-5">
+            {steps.map((step, index) => (
+              <li key={step.title} className="flex gap-3.5">
+                <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-accent-soft text-[12px] font-semibold text-accent-hover">
+                  {index + 1}
+                </span>
+                <span>
+                  <span className="block text-[13px] font-medium text-ink">{step.title}</span>
+                  <span className="mt-0.5 block max-w-xl text-[13px] text-ink-muted">
+                    {step.body}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ol>
+
+          <div className="mt-7 flex gap-2.5">
+            <Link
+              to="/discovery"
+              className="inline-flex h-9 items-center rounded-lg bg-accent px-4 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+            >
+              Set up discovery
+            </Link>
+            <Link to="/outreach">
+              <Button>Review the pitch first</Button>
+            </Link>
+          </div>
+        </div>
       </div>
     </>
   )

@@ -48,7 +48,7 @@ export function Button({
   return (
     <button
       className={cx(
-        'inline-flex items-center justify-center gap-1.5 rounded-md border font-medium',
+        'inline-flex items-center justify-center gap-1.5 rounded-lg border font-medium',
         'transition-colors disabled:cursor-not-allowed disabled:opacity-50',
         size === 'sm' ? 'h-7 px-2.5 text-[13px]' : 'h-9 px-3.5 text-sm',
         variants[variant],
@@ -96,7 +96,7 @@ export function Field({ label, hint, error, children }: FieldProps) {
 }
 
 const controlStyles =
-  'w-full rounded-md border border-line bg-surface px-3 text-sm text-ink placeholder:text-ink-muted ' +
+  'w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink placeholder:text-ink-muted ' +
   'transition-colors hover:border-line-strong focus:border-accent focus:outline-none ' +
   'disabled:cursor-not-allowed disabled:bg-sunken disabled:text-ink-muted'
 
@@ -186,29 +186,6 @@ export function Card({
       )}
       {children}
     </section>
-  )
-}
-
-export function Stat({
-  label,
-  value,
-  sub,
-  tone,
-}: {
-  label: string
-  value: ReactNode
-  sub?: string
-  tone?: Tone
-}) {
-  return (
-    <div className="panel px-4 py-3.5">
-      <div className="flex items-center gap-2">
-        <span className="text-[12px] font-medium text-ink-muted">{label}</span>
-        {tone && <span className={cx('size-1.5 rounded-full', TONES[tone].split(' ')[0])} />}
-      </div>
-      <div className="mt-1.5 text-2xl font-semibold text-ink">{value}</div>
-      {sub && <div className="mt-0.5 text-[12px] text-ink-muted">{sub}</div>}
-    </div>
   )
 }
 
