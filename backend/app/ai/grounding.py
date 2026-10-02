@@ -91,6 +91,17 @@ class Evidence:
             return False
         return target in {_digits_only(n) for n in _NUMBER.findall(self.text)}
 
+    @property
+    def proper_nouns(self) -> list[str]:
+        """Names whose capitalisation is authoritative, longest first.
+
+        Longest first so "Marks and Spencer Reliance India" is restored before
+        the shorter fragments inside it.
+        """
+        keys = ("company.name", "lead.first_name", "lead.last_name")
+        names = [self.fields[k] for k in keys if self.fields.get(k)]
+        return sorted(names, key=len, reverse=True)
+
     def attribute(self, value: str) -> str | None:
         """Which stored field a value came from, if any."""
         lowered = value.strip().lower()

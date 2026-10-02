@@ -132,6 +132,29 @@ class RenderedEmail:
     grounding_report: dict[str, Any] = field(default_factory=dict)
 
 
+def _restore_entity_case(text: str, evidence: Evidence) -> str:
+    """Put known names back into their stored capitalisation.
+
+    Asked for a fragment that "starts lower case", the model applies it to the
+    whole clause and returns "technosport has appointed sachin tandon". The
+    instruction cannot be relied on, but the correct spelling is already on
+    file, so the fix is applied here rather than argued for in the prompt.
+    """
+    for name in evidence.proper_nouns:
+        text = re.sub(re.escape(name), name, text, flags=re.IGNORECASE)
+    return text
+
+
+def _lower_first(text: str, evidence: Evidence) -> str:
+    """Lower-case the opening word unless it is a name we hold on file."""
+    if not text:
+        return text
+    first = text.split(maxsplit=1)[0].rstrip(",.")
+    if any(first.lower() == n.split()[0].lower() for n in evidence.proper_nouns):
+        return text
+    return text[0].lower() + text[1:]
+
+
 def _condense(text: str, *, company_name: str) -> str:
     """Deterministic fallback for the subject-line fragment.
 
@@ -247,9 +270,12 @@ def resolve_tokens(
         # Deterministic fallback: the stored fact verbatim. Less fluent, but it
         # cannot be wrong, and it keeps the feature working when the LLM is out
         # of quota.
-        raw_signal[0].lower() + raw_signal[1:].rstrip(".") if raw_signal else None
+        _lower_first(raw_signal.rstrip("."), evidence) if raw_signal else None
     )
     if sentence:
+        # Applied to both paths: the model lower-cases names it was told to
+        # start lower case, and the fallback must not lower-case one either.
+        sentence = _restore_entity_case(sentence, evidence)
         verdict = check_claim(sentence, evidence, token="observed_signal_sentence")
         put("observed_signal_sentence", sentence, "model" if phrasing else "field",
             source_field="lead.observed_signal", source_url=signal_url, verdict=verdict)
@@ -271,6 +297,7 @@ def resolve_tokens(
 
     hypothesis = phrasing.get("one_line_relevance_hypothesis")
     if hypothesis:
+        hypothesis = _restore_entity_case(hypothesis, evidence)
         put("one_line_relevance_hypothesis", hypothesis, "model", source_url=signal_url,
             verdict=check_claim(hypothesis, evidence, token="one_line_relevance_hypothesis"))
     elif matched:
