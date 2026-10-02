@@ -1,0 +1,101 @@
+@import 'tailwindcss';
+
+/* Design tokens.
+ *
+ * Warm neutrals rather than the usual cold blue-grays: the surfaces sit at a
+ * slightly yellow white, which reads as paper rather than as a screenshot of a
+ * component library. Status colours come from a validated palette and are
+ * reserved - they never double as decoration.
+ *
+ * Light mode only, deliberately. A half-built dark mode is worse than none,
+ * and every token below is chosen against the light surface. */
+@theme {
+  --color-plane: #f9f9f7;
+  --color-surface: #fcfcfb;
+  --color-sunken: #f2f2ef;
+
+  --color-ink: #0b0b0b;
+  --color-ink-secondary: #52514e;
+  --color-ink-muted: #898781;
+
+  --color-line: #e4e3dd;
+  --color-line-strong: #c9c8c0;
+
+  --color-accent: #2a78d6;
+  --color-accent-hover: #256abf;
+  --color-accent-soft: #eaf2fd;
+
+  --color-good: #0ca30c;
+  --color-good-soft: #e8f6e8;
+  --color-warning: #fab219;
+  --color-warning-soft: #fdf3e0;
+  --color-serious: #ec835a;
+  --color-serious-soft: #fdeee7;
+  --color-critical: #d03b3b;
+  --color-critical-soft: #fbeaea;
+
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --radius-card: 10px;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--color-plane);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* Columns of figures have to line up to be scannable; prose does not. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: var(--color-accent-soft);
+  }
+}
+
+@layer components {
+  /* A single source for the hairline-ringed panel the whole console is built
+   * from, so panels cannot drift apart visually. */
+  .panel {
+    background: var(--color-surface);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-card);
+  }
+}
+
+/* The score meter's fill. Width is set inline from the score; the colour band
+ * comes from a data attribute so the thresholds live with the markup. */
+.meter {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--color-sunken);
+  overflow: hidden;
+}
+.meter > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--color-accent);
+  transition: width 240ms ease;
+}
+.meter[data-band='hot'] > span {
+  background: var(--color-good);
+}
+.meter[data-band='cold'] > span {
+  background: var(--color-line-strong);
+}
