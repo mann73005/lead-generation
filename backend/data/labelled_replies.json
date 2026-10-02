@@ -1,0 +1,54 @@
+{
+  "description": "Hand-labelled replies for measuring classification accuracy. Written to resemble real cold-outreach responses: hedged, polite, and often carrying a soft no inside an agreeable opener. Deliberately includes cases where the surface sentiment and the actual intent disagree.",
+  "label_set": ["interested", "needs_info", "not_now", "wrong_person", "unsubscribe"],
+  "examples": [
+    {
+      "id": 1,
+      "text": "Sounds interesting - can you do Tuesday afternoon? Happy to jump on a quick call.",
+      "label": "interested",
+      "note": "Explicit agreement plus a proposed time."
+    },
+    {
+      "id": 2,
+      "text": "Thanks for reaching out. Could you send over some more detail on how the forecasting works and what the pricing looks like?",
+      "label": "needs_info",
+      "note": "Open, but wants material before committing to a conversation."
+    },
+    {
+      "id": 3,
+      "text": "We're mid-season right now so this isn't a priority. Worth picking up again after our Q1 planning cycle.",
+      "label": "not_now",
+      "note": "Not a refusal - a deferral with a stated timeframe."
+    },
+    {
+      "id": 4,
+      "text": "I don't handle inventory planning any more. Priya in our supply chain team would be the right person - I can forward this on.",
+      "label": "wrong_person",
+      "note": "Redirect to a named colleague."
+    },
+    {
+      "id": 5,
+      "text": "Please remove me from your list and do not contact me again.",
+      "label": "unsubscribe",
+      "note": "Unambiguous opt-out."
+    },
+    {
+      "id": 6,
+      "text": "Appreciate the note but we already use an in-house forecasting model, so no need for anything here. Thanks anyway.",
+      "label": "not_now",
+      "note": "Hard case: polite, and declines this approach rather than all contact. A classifier that reads 'no need' as an opt-out fails here."
+    },
+    {
+      "id": 7,
+      "text": "Interesting timing - we've been struggling with markdowns this season. What would onboarding actually involve?",
+      "label": "needs_info",
+      "note": "Hard case: states a real pain point and sounds warm, but the ask is for information, not a meeting."
+    },
+    {
+      "id": 8,
+      "text": "Not something I'm across - try our procurement team at the head office.",
+      "label": "wrong_person",
+      "note": "Hard case: terse, reads dismissive, but is a redirect rather than a refusal."
+    }
+  ]
+}
